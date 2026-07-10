@@ -136,7 +136,12 @@ function MatrixPanel ({ site }) {
 											type="checkbox"
 											disabled={busy || mirror.active}
 											checked={!!picked[s.id]?.on}
-											onChange={(e) => setPicked((p) => ({ ...p, [s.id]: { ...(p[s.id] || {}), on: e.target.checked } }))}
+											onChange={(e) => {
+												// Read the pooled synthetic event NOW — inside the async
+												// setState updater React 16 has already nulled e.target.
+												const on = e.target.checked;
+												setPicked((p) => ({ ...p, [s.id]: { ...(p[s.id] || {}), on } }));
+											}}
 										/>
 										<strong>{s.name}</strong>
 									</label>
@@ -151,7 +156,10 @@ function MatrixPanel ({ site }) {
 										placeholder="WP version (optional, e.g. 6.4.6)"
 										disabled={busy || !picked[s.id]?.on || mirror.active}
 										value={picked[s.id]?.wpVersion || ''}
-										onChange={(e) => setPicked((p) => ({ ...p, [s.id]: { ...(p[s.id] || {}), wpVersion: e.target.value } }))}
+										onChange={(e) => {
+											const wpVersion = e.target.value; // same pooling hazard as the checkbox above
+											setPicked((p) => ({ ...p, [s.id]: { ...(p[s.id] || {}), wpVersion } }));
+										}}
 										style={{ width: 220, height: 30, boxSizing: 'border-box', padding: '0 8px', borderRadius: 4, border: '1px solid #c3c4c7', fontSize: 12 }}
 									/>
 								</td>
