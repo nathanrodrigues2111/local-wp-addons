@@ -172,6 +172,13 @@ export async function startTunnel (
 		// Point WordPress at the tunnel so redirects/OAuth callbacks use the public URL.
 		state.originalHome = (await wpCli.run(site, ['option', 'get', 'home'])).trim();
 		state.originalSiteurl = (await wpCli.run(site, ['option', 'get', 'siteurl'])).trim();
+		// Never treat a leftover tunnel URL (crashed/killed session) as the original.
+		if (/trycloudflare\.com/.test(state.originalHome)) {
+			state.originalHome = `https://${site.domain}`;
+		}
+		if (/trycloudflare\.com/.test(state.originalSiteurl || '')) {
+			state.originalSiteurl = state.originalHome;
+		}
 		await wpCli.run(site, ['option', 'update', 'home', url]);
 		await wpCli.run(site, ['option', 'update', 'siteurl', url]);
 		logger.info(`Rewrote home/siteurl to ${url} (was ${state.originalHome}).`);
