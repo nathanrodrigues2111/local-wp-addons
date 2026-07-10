@@ -33,6 +33,21 @@ function isComparable (target) {
 	return /^\d+(\.\d+){0,2}$/.test(String(target || '').trim());
 }
 
+/** FlySelect options map (value -> label) for the version list. */
+function buildOptions (versions, current) {
+	const options = {};
+	versions.forEach((v) => {
+		let label = v.version;
+		if (v.status === 'latest') label += ' — latest';
+		if (v.status === 'insecure') label += ' — insecure';
+		if (v.status === 'beta') label += ' — beta / RC';
+		if (v.status === 'nightly') label = 'nightly — bleeding edge';
+		if (v.version === current) label += ' (installed)';
+		options[v.version] = label;
+	});
+	return options;
+}
+
 /** Unwrap Local's ipcAsync rejection noise and return just the real message. */
 function cleanError (err) {
 	let msg = String(err?.message || err);
@@ -310,20 +325,10 @@ function WordPressVersionManager ({ site, compact }) {
 	// Compact variant for the Overview table, styled like the PHP version row:
 	// native FlySelect + a green "Update" text link when the selection changes.
 	if (compact) {
-		const options = {};
-		versions.forEach((v) => {
-			let label = v.version;
-			if (v.status === 'latest') label += ' — latest';
-			if (v.status === 'beta') label += ' — beta / RC';
-			if (v.status === 'nightly') label = 'nightly — bleeding edge';
-			if (v.version === current) label += ' (installed)';
-			options[v.version] = label;
-		});
-
 		return (
 			<div data-wpvm-row style={{ display: 'flex', alignItems: 'center' }}>
 				<FlySelect
-					options={options}
+					options={buildOptions(versions, current)}
 					value={selected}
 					disabled={busy || versions.length === 0}
 					onChange={(value) => { setSelected(value); setCustom(''); }}
@@ -348,33 +353,17 @@ function WordPressVersionManager ({ site, compact }) {
 			<label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>
 				Switch to
 			</label>
-			<select
-				value={selected}
-				disabled={busy || versions.length === 0}
-				onChange={(e) => {
-					setSelected(e.target.value);
-					setCustom('');
-				}}
-				style={{
-					width: '100%',
-					maxWidth: 360,
-					padding: '8px 10px',
-					borderRadius: 4,
-					border: '1px solid #c3c4c7',
-					marginBottom: 16,
-				}}
-			>
-				{versions.map((v) => (
-					<option key={v.version} value={v.version}>
-						{v.version}
-						{v.status === 'latest' ? ' — latest' : ''}
-						{v.status === 'insecure' ? ' — insecure' : ''}
-						{v.status === 'beta' ? ' — beta / RC' : ''}
-						{v.status === 'nightly' ? ' — bleeding edge' : ''}
-						{v.version === current ? ' (installed)' : ''}
-					</option>
-				))}
-			</select>
+			<div style={{ maxWidth: 360, marginBottom: 16 }}>
+				<FlySelect
+					options={buildOptions(versions, current)}
+					value={selected}
+					disabled={busy || versions.length === 0}
+					onChange={(value) => {
+						setSelected(value);
+						setCustom('');
+					}}
+				/>
+			</div>
 
 			<label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>
 				…or enter any version / .zip URL
@@ -388,7 +377,11 @@ function WordPressVersionManager ({ site, compact }) {
 				style={{
 					width: '100%',
 					maxWidth: 360,
-					padding: '8px 10px',
+					height: 38,
+					lineHeight: '22px',
+					fontSize: 13,
+					boxSizing: 'border-box',
+					padding: '0 10px',
 					borderRadius: 4,
 					border: '1px solid #c3c4c7',
 					marginBottom: 16,
