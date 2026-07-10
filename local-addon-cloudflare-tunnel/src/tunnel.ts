@@ -84,9 +84,13 @@ export async function startTunnel (
 
 	const target = `http://${site.domain}`;
 	logger.info(`Starting cloudflared quick tunnel -> ${target}`);
-	const proc = spawn(bin, ['tunnel', '--url', target, '--no-autoupdate'], {
-		stdio: ['ignore', 'pipe', 'pipe'],
-	});
+	// --http-host-header: Local's nginx router routes by Host header, so origin
+	// requests must carry the site's own domain, not the trycloudflare hostname.
+	const proc = spawn(
+		bin,
+		['tunnel', '--url', target, '--http-host-header', site.domain, '--no-autoupdate'],
+		{ stdio: ['ignore', 'pipe', 'pipe'] },
+	);
 
 	const url = await new Promise<string>((resolve, reject) => {
 		let buffer = '';
