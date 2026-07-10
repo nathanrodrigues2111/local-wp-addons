@@ -79,6 +79,9 @@ function bridgeJs (port: number, role: string, label: string): string {
 					if (setter && setter.set) setter.set.call(inp, ev.value); else inp.value = ev.value;
 					inp.dispatchEvent(new Event('input', { bubbles: true }));
 					inp.dispatchEvent(new Event('change', { bubbles: true }));
+				} else if (ev.t === 'scroll') {
+					var maxF = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+					window.scrollTo(0, ev.ratio * maxF);
 				}
 			} catch (err) {
 				send({ t: 'issue', label: LABEL, kind: 'replay-failed', detail: String(err).slice(0, 200) });
@@ -91,6 +94,19 @@ function bridgeJs (port: number, role: string, label: string): string {
 		send({ t: 'issue', label: LABEL, kind: 'js-error', detail: String(e.message).slice(0, 300) + ' @ ' + (e.filename || '').split('/').slice(-1)[0] + ':' + e.lineno });
 	});
 	if (ROLE === 'leader') {
+		// Proportional scroll mirroring (throttled, with a trailing send so the
+		// final resting position always syncs).
+		var scrollTimer = null, lastScrollSent = 0;
+		function sendScroll () {
+			var max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+			send({ t: 'scroll', ratio: window.scrollY / max });
+		}
+		window.addEventListener('scroll', function () {
+			var now = Date.now();
+			if (now - lastScrollSent > 80) { lastScrollSent = now; sendScroll(); }
+			clearTimeout(scrollTimer);
+			scrollTimer = setTimeout(sendScroll, 120);
+		}, { passive: true });
 		document.addEventListener('click', function (e) {
 			var sel = selectorFor(e.target.closest('a,button,input,select,textarea,[role=button],label') || e.target);
 			if (sel) send({ t: 'click', sel: sel });
@@ -220,10 +236,25 @@ export async function startMirror (
 		res.end();
 	});
 	const server = new WebSocketServer({ server: httpServer });
-	await new Promise<void>((resolve, reject) => {
-		httpServer.listen(0, '127.0.0.1', () => resolve());
-		httpServer.once('error', reject);
-	});
+	// Stable port: pages from a previous session (old grid window, old tabs)
+	// keep reconnecting to this port, so they come back alive when a new
+	// session starts instead of pointing at a dead random port.
+	const BASE_PORT = 39303;
+	let bound = false;
+	for (let candidate = BASE_PORT; candidate < BASE_PORT + 10 && !bound; candidate++) {
+		// eslint-disable-next-line no-await-in-loop
+		bound = await new Promise<boolean>((resolve) => {
+			const onError = () => resolve(false);
+			httpServer.once('error', onError);
+			httpServer.listen(candidate, '127.0.0.1', () => {
+				httpServer.removeListener('error', onError);
+				resolve(true);
+			});
+		});
+	}
+	if (!bound) {
+		throw new Error('Could not bind the mirror hub port (39303-39312 all busy).');
+	}
 	const port = (httpServer.address() as any).port;
 	const gridUrl = `http://127.0.0.1:${port}/grid`;
 
