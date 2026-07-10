@@ -61,6 +61,42 @@ function muPluginPath (site: Local.Site): string {
 	);
 }
 
+/**
+ * Stop the site's nginx from writing absolute redirects with its local port
+ * (e.g. /wp-admin -> host:10008/wp-admin/), which breaks them on the tunnel.
+ * Appends the directives to a conf include inside the server block and
+ * hot-reloads nginx. Local regenerates this conf on site start, but the
+ * tunnel is stopped with the site anyway.
+ */
+async function fixNginxRedirects (
+	site: Local.Site,
+	logger: { info: (m: string) => void; warn: (m: string) => void },
+): Promise<void> {
+	if (process.platform === 'win32') {
+		return; // no pkill; the trailing-slash case is a lesser evil than breaking here
+	}
+	try {
+		// eslint-disable-next-line global-require
+		const { app } = require('electron');
+		const inc = path.join(app.getPath('userData'), 'run', site.id, 'conf', 'nginx', 'includes', 'restrictions.conf');
+		if (!(await fs.pathExists(inc))) {
+			return;
+		}
+		const current = await fs.readFile(inc, 'utf8');
+		if (!current.includes('absolute_redirect')) {
+			await fs.appendFile(
+				inc,
+				'\n# cloudflare-tunnel add-on: keep redirects relative so they work through the tunnel\n'
+				+ 'absolute_redirect off;\nport_in_redirect off;\n',
+			);
+			execFileSync('pkill', ['-HUP', '-f', `nginx: master process.*${site.id}`]);
+			logger.info(`Patched nginx redirects for ${site.id} (absolute_redirect off) and reloaded.`);
+		}
+	} catch (err: any) {
+		logger.warn(`nginx redirect fixup failed (non-fatal): ${err?.message}`);
+	}
+}
+
 /** Locate the cloudflared binary: common user/system paths, then PATH. */
 export function findCloudflared (): string | null {
 	const candidates = [
@@ -167,6 +203,8 @@ export async function startTunnel (
 
 	// HTTPS shim so WP treats tunnel-edge requests as SSL (see MU_PLUGIN docblock).
 	await fs.outputFile(muPluginPath(site), MU_PLUGIN);
+	// Keep nginx redirects relative so /wp-admin -> /wp-admin/ works on the tunnel.
+	await fixNginxRedirects(site, logger);
 
 	if (rewrite) {
 		// Point WordPress at the tunnel so redirects/OAuth callbacks use the public URL.
