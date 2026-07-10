@@ -27,6 +27,40 @@ const tunnels = new Map<string, TunnelState>();
 
 const URL_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/;
 
+/** The site's own nginx HTTP port (bypasses Local's Host-routing router). */
+function getSiteHttpPort (site: Local.Site): number | null {
+	const services: any = (site as any).services || {};
+	for (const key of Object.keys(services)) {
+		const svc = services[key];
+		if (svc?.role === 'http' && svc?.ports?.HTTP?.[0]) {
+			return svc.ports.HTTP[0];
+		}
+	}
+	return null;
+}
+
+/**
+ * WordPress runs plain HTTP on the origin while the tunnel edge is HTTPS —
+ * without this, WP would redirect-loop trying to "fix" the protocol. Standard
+ * reverse-proxy shim: honor X-Forwarded-Proto from cloudflared.
+ */
+const MU_PLUGIN = `<?php
+/**
+ * Plugin Name: Cloudflare Tunnel HTTPS shim (managed by the Local add-on)
+ * Description: Marks requests as HTTPS when they arrive via the tunnel edge.
+ */
+if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === $_SERVER['HTTP_X_FORWARDED_PROTO'] ) {
+	$_SERVER['HTTPS'] = 'on';
+}
+`;
+
+function muPluginPath (site: Local.Site): string {
+	return path.join(
+		LocalMain.formatHomePath(site.path),
+		'app', 'public', 'wp-content', 'mu-plugins', 'cloudflare-tunnel-ssl.php',
+	);
+}
+
 /** Locate the cloudflared binary: common user/system paths, then PATH. */
 export function findCloudflared (): string | null {
 	const candidates = [
@@ -62,15 +96,21 @@ export function getStatus (siteId: string): TunnelStatus {
 }
 
 /** Start a quick tunnel for a site; resolves once the public URL is known. */
+export interface StartResult {
+	url: string;
+	originalHome?: string;
+	originalSiteurl?: string;
+}
+
 export async function startTunnel (
 	wpCli: LocalMain.Services.WpCli,
 	site: Local.Site,
 	rewrite: boolean,
 	logger: { info: (m: string) => void; warn: (m: string) => void },
-): Promise<string> {
+): Promise<StartResult> {
 	const existing = tunnels.get(site.id);
 	if (existing && existing.proc.exitCode === null) {
-		return existing.url;
+		return { url: existing.url, originalHome: existing.originalHome, originalSiteurl: existing.originalSiteurl };
 	}
 
 	const bin = findCloudflared();
@@ -82,15 +122,19 @@ export async function startTunnel (
 		);
 	}
 
-	const target = `http://${site.domain}`;
+	// Tunnel straight to the site's own nginx port, bypassing Local's router.
+	// That lets WordPress see the real tunnel hostname (Host header passes
+	// through), so $_SERVER-derived URLs (auth redirects, canonical redirects)
+	// stay on the tunnel instead of leaking site.local:<port>.
+	const httpPort = getSiteHttpPort(site);
+	const target = httpPort ? `http://127.0.0.1:${httpPort}` : `http://${site.domain}`;
+	const args = ['tunnel', '--url', target, '--no-autoupdate'];
+	if (!httpPort) {
+		// Fallback via the router, which routes by Host header.
+		args.push('--http-host-header', site.domain);
+	}
 	logger.info(`Starting cloudflared quick tunnel -> ${target}`);
-	// --http-host-header: Local's nginx router routes by Host header, so origin
-	// requests must carry the site's own domain, not the trycloudflare hostname.
-	const proc = spawn(
-		bin,
-		['tunnel', '--url', target, '--http-host-header', site.domain, '--no-autoupdate'],
-		{ stdio: ['ignore', 'pipe', 'pipe'] },
-	);
+	const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
 	const url = await new Promise<string>((resolve, reject) => {
 		let buffer = '';
@@ -121,6 +165,9 @@ export async function startTunnel (
 
 	const state: TunnelState = { proc, url, rewrite };
 
+	// HTTPS shim so WP treats tunnel-edge requests as SSL (see MU_PLUGIN docblock).
+	await fs.outputFile(muPluginPath(site), MU_PLUGIN);
+
 	if (rewrite) {
 		// Point WordPress at the tunnel so redirects/OAuth callbacks use the public URL.
 		state.originalHome = (await wpCli.run(site, ['option', 'get', 'home'])).trim();
@@ -137,7 +184,7 @@ export async function startTunnel (
 		}
 	});
 
-	return url;
+	return { url, originalHome: state.originalHome, originalSiteurl: state.originalSiteurl };
 }
 
 /** Stop a site's tunnel and restore the original URLs if they were rewritten. */
@@ -155,6 +202,8 @@ export async function stopTunnel (
 	try {
 		state.proc.kill();
 	} catch (err) { /* already dead */ }
+
+	await fs.remove(muPluginPath(site)).catch(() => undefined);
 
 	if (state.rewrite && state.originalHome) {
 		try {
