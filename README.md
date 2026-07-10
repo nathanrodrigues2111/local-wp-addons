@@ -7,6 +7,7 @@ Add-ons for [Local (LocalWP)](https://localwp.com/) that make WordPress plugin Q
 | [**WordPress Version Manager**](local-addon-wp-version-manager/) | Switch a site's WordPress core to **any** version — stable, beta/RC, nightly, or old — from a dropdown styled like Local's PHP version selector. Auto DB snapshot before each switch, with one-click restore. |
 | [**Site Snapshots**](local-addon-site-snapshots/) | Save the **whole site state** (database + wp-content) as a named snapshot and load it back in one click — "save game / load game" for dev sites. Set up your feeds/plugins once, reload that setup any time. |
 | [**Cloudflare Tunnel**](local-addon-cloudflare-tunnel/) | Expose a site on a public `trycloudflare.com` URL — OAuth callbacks, webhooks, sharing. Optionally rewrites home/siteurl while active and restores on stop. |
+| [**Matrix Tester**](local-addon-matrix-test/) | Test the same setup on several sites at once (different WP/PHP/plugin versions): sync the setup to variants, then mirror clicks/typing/navigation across all of them live, with per-variant error reporting. |
 
 ## Install (either add-on)
 

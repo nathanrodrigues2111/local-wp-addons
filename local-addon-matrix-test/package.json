@@ -1,0 +1,75 @@
+{
+	"name": "local-addon-matrix-test",
+	"productName": "Matrix Tester",
+	"version": "1.0.0",
+	"author": "nathanrodrigues2111",
+	"keywords": [
+		"local-addon"
+	],
+	"bgColor": "#2c89a0",
+	"icon": "icon.svg",
+	"slug": "matrix-test",
+	"description": "Test the same setup on several sites at once (different WP/PHP/plugin versions): sync the setup to all variants, then mirror your clicks/typing/navigation across every site live.",
+	"renderer": "lib/renderer.js",
+	"main": "lib/main.js",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/nathanrodrigues2111/local-wp-addons"
+	},
+	"license": "MIT",
+	"scripts": {
+		"build": "tsc",
+		"prepare": "tsc",
+		"watch": "yarn run build --watch",
+		"lint": "eslint ."
+	},
+	"devDependencies": {
+		"@getflywheel/eslint-config-local": "1.0.4",
+		"@getflywheel/local": "^9",
+		"@types/node": "^20.19.43",
+		"@types/react": "^18.2.24",
+		"@types/ws": "^8.5.10",
+		"@typescript-eslint/eslint-plugin": "^6.7.4",
+		"@typescript-eslint/parser": "^6.7.4",
+		"eslint": "^8.50.0",
+		"eslint-plugin-import": "^2.14.0",
+		"eslint-plugin-react": "^7.11.1",
+		"typescript": "^4"
+	},
+	"peerDependencies": {
+		"react": ">= 16.4.0",
+		"react-dom": ">= 16.4.0",
+		"react-router-dom": "^4.3.1"
+	},
+	"dependencies": {
+		"@getflywheel/local-components": "^17",
+		"classnames": "^2.2.6",
+		"dateformat": "^3.0.3",
+		"fs-extra": "^9.0.1",
+		"lodash": "^4.17.21",
+		"prop-types": "^15.6.2",
+		"react": ">= 16.4.0",
+		"react-dom": ">= 16.4.0",
+		"react-router-dom": "^4.3.1",
+		"ws": "^8.18.0"
+	},
+	"bundledDependencies": [
+		"@getflywheel/local-components",
+		"classnames",
+		"dateformat",
+		"lodash",
+		"prop-types",
+		"ws"
+	],
+	"engines": {
+		"local-by-flywheel": "^5.0.0"
+	},
+	"bundleDependencies": [
+		"@getflywheel/local-components",
+		"classnames",
+		"dateformat",
+		"lodash",
+		"prop-types",
+		"ws"
+	]
+}
