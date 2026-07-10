@@ -90,14 +90,12 @@ export default function (context: LocalMain.AddonMainContext): void {
 			assertRunning(s);
 			return s;
 		});
-		const { port } = await startMirror(sites, leader, (issue: MirrorIssue) => {
+		const { port, gridUrl } = await startMirror(sites, leader, (issue: MirrorIssue) => {
 			LocalMain.sendIPCEvent(`${ADDON_SLUG}:issue`, issue);
 		}, logger);
-		// Open every participating site in the default browser.
-		for (const s of sites) {
-			context.electron.shell.openExternal(`https://${s.domain}`);
-		}
-		return { port };
+		// One split-screen window with every variant visible at once.
+		context.electron.shell.openExternal(gridUrl);
+		return { port, gridUrl };
 	});
 
 	LocalMain.addIpcAsyncListener(`${ADDON_SLUG}:mirror-stop`, async (siteIds: string[]) => {

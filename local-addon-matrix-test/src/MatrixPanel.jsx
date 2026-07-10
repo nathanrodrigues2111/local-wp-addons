@@ -92,7 +92,7 @@ function MatrixPanel ({ site }) {
 	const startMirror = () => run(async () => {
 		setIssues([]);
 		const res = await LocalRenderer.ipcAsync(`${SLUG}:mirror-start`, leaderId, [leaderId, ...pickedIds]);
-		setNotice(`Mirroring live (hub port ${res.port}). Browser windows opened — drive THIS site (${site?.name}); the others follow.`);
+		setNotice(`Mirroring live (hub port ${res.port}). A split-screen window opened with every variant — drive the green LEADER pane (${site?.name}); the rest follow.`);
 		await refresh();
 	});
 
@@ -174,7 +174,14 @@ function MatrixPanel ({ site }) {
 					{busy ? 'Working…' : `Sync setup to ${pickedIds.length || '…'} variant${pickedIds.length === 1 ? '' : 's'}`}
 				</Button>
 				{mirror.active ? (
-					<Button disabled={busy} onClick={stopMirror}>Stop mirroring</Button>
+					<>
+						<Button disabled={busy} onClick={stopMirror}>Stop mirroring</Button>
+						{mirror.gridUrl ? (
+							<a href={mirror.gridUrl} target="_blank" rel="noreferrer" style={{ alignSelf: 'center' }}>
+								Open split-screen view
+							</a>
+						) : null}
+					</>
 				) : (
 					<Button disabled={busy || pickedIds.length === 0} onClick={startMirror}>Start mirroring</Button>
 				)}

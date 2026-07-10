@@ -2,6 +2,7 @@
 // inputs, navigation) to follower sites, plus the browser bridge injected
 // into every participating site via a managed mu-plugin.
 import path from 'path';
+import http from 'http';
 import fs from 'fs-extra';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as Local from '@getflywheel/local';
@@ -21,6 +22,8 @@ export interface MirrorSession {
 	issues: MirrorIssue[];
 	events: number;
 	server: WebSocketServer;
+	httpServer: http.Server;
+	gridUrl: string;
 }
 
 let session: MirrorSession | null = null;
@@ -122,7 +125,66 @@ function matrix_mirror_bridge() {
 `;
 }
 
-export function getSession (): { active: boolean; port?: number; siteIds?: string[]; issues?: MirrorIssue[]; events?: number } {
+/** The split-screen grid page: every variant in one window, leader first. */
+function gridPage (sites: { name: string; url: string; leader: boolean }[], port: number): string {
+	const cols = sites.length <= 2 ? sites.length : 2;
+	const panes = sites.map((s) => `
+		<div class="pane${s.leader ? ' leader' : ''}" data-label="${s.name}">
+			<div class="bar">
+				<span class="dot"></span>
+				<strong>${s.name}</strong>${s.leader ? ' — LEADER (drive this one)' : ''}
+				<span class="issues" hidden>0 issues</span>
+				<a href="${s.url}" target="_blank" title="Open in its own tab">↗</a>
+			</div>
+			<iframe src="${s.url}"></iframe>
+		</div>`).join('');
+	return `<!doctype html>
+<html><head><meta charset="utf-8"><title>Matrix Tester — ${sites.length} variants</title>
+<style>
+	* { box-sizing: border-box; margin: 0; }
+	html, body { height: 100%; background: #1d2327; font-family: system-ui, sans-serif; }
+	.grid { display: grid; height: 100vh; gap: 4px; padding: 4px;
+		grid-template-columns: repeat(${cols}, 1fr); grid-auto-rows: 1fr; }
+	.pane { display: flex; flex-direction: column; border: 2px solid #3c434a; border-radius: 6px; overflow: hidden; background: #fff; }
+	.pane.leader { border-color: #51bb7b; }
+	.pane.has-issues { border-color: #e2574f; }
+	.bar { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: #2c3338; color: #e0e0e0; font-size: 12px; }
+	.pane.leader .bar { background: #1e3a2b; }
+	.dot { width: 8px; height: 8px; border-radius: 50%; background: #51bb7b; }
+	.issues { color: #ff8785; font-weight: 600; }
+	.bar a { margin-left: auto; color: #9ec2ff; text-decoration: none; }
+	iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+	#status { position: fixed; right: 10px; bottom: 8px; color: #9aa0a6; font-size: 11px; }
+</style></head>
+<body>
+	<div class="grid">${panes}</div>
+	<div id="status">connecting…</div>
+	<script>
+	(function () {
+		var status = document.getElementById('status');
+		function connect () {
+			var ws = new WebSocket('ws://127.0.0.1:${port}');
+			ws.onopen = function () { ws.send(JSON.stringify({ t: 'hello', role: 'observer', label: 'grid' })); status.textContent = 'mirroring live'; };
+			ws.onmessage = function (m) {
+				var ev; try { ev = JSON.parse(m.data); } catch (e) { return; }
+				if (ev.t === 'issue') {
+					var pane = document.querySelector('.pane[data-label="' + (ev.label || '').replace(/"/g, '') + '"]');
+					if (!pane) return;
+					pane.classList.add('has-issues');
+					var el = pane.querySelector('.issues');
+					el.hidden = false;
+					el.textContent = (parseInt(el.textContent, 10) || 0) + 1 + ' issue(s): ' + (ev.detail || '').slice(0, 60);
+				}
+			};
+			ws.onclose = function () { status.textContent = 'session ended — close this window'; };
+		}
+		connect();
+	})();
+	</script>
+</body></html>`;
+}
+
+export function getSession (): { active: boolean; port?: number; siteIds?: string[]; issues?: MirrorIssue[]; events?: number; gridUrl?: string } {
 	if (!session) {
 		return { active: false };
 	}
@@ -132,6 +194,7 @@ export function getSession (): { active: boolean; port?: number; siteIds?: strin
 		siteIds: session.siteIds,
 		issues: session.issues.slice(-100),
 		events: session.events,
+		gridUrl: session.gridUrl,
 	};
 }
 
@@ -140,22 +203,37 @@ export async function startMirror (
 	leader: Local.Site,
 	onIssue: (issue: MirrorIssue) => void,
 	logger: { info: (m: string) => void; warn: (m: string) => void },
-): Promise<{ port: number }> {
+): Promise<{ port: number; gridUrl: string }> {
 	if (session) {
 		await stopMirror(sites, logger);
 	}
 
-	const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
-	await new Promise<void>((resolve, reject) => {
-		server.once('listening', () => resolve());
-		server.once('error', reject);
+	// HTTP server hosts the split-screen grid page; the WS hub rides on it.
+	const paneList = sites.map((s) => ({ name: s.name, url: `https://${s.domain}`, leader: s.id === leader.id }));
+	const httpServer = http.createServer((req, res) => {
+		if ((req.url || '').startsWith('/grid')) {
+			res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+			res.end(gridPage(paneList, (httpServer.address() as any).port));
+			return;
+		}
+		res.writeHead(404);
+		res.end();
 	});
-	const port = (server.address() as any).port;
+	const server = new WebSocketServer({ server: httpServer });
+	await new Promise<void>((resolve, reject) => {
+		httpServer.listen(0, '127.0.0.1', () => resolve());
+		httpServer.once('error', reject);
+	});
+	const port = (httpServer.address() as any).port;
+	const gridUrl = `http://127.0.0.1:${port}/grid`;
 
-	const sess: MirrorSession = { port, leaderId: leader.id, siteIds: sites.map((s) => s.id), issues: [], events: 0, server };
+	const sess: MirrorSession = {
+		port, leaderId: leader.id, siteIds: sites.map((s) => s.id), issues: [], events: 0, server, httpServer, gridUrl,
+	};
 	session = sess;
 
 	const followers = new Set<WebSocket>();
+	const observers = new Set<WebSocket>();
 	server.on('connection', (socket) => {
 		let role = 'follower';
 		socket.on('message', (raw) => {
@@ -169,6 +247,8 @@ export async function startMirror (
 				role = msg.role;
 				if (role === 'follower') {
 					followers.add(socket);
+				} else if (role === 'observer') {
+					observers.add(socket);
 				} else if (msg.path) {
 					// The leader's nav-on-load can't be sent before its socket opens,
 					// so hello carries the path — broadcast it as a nav event.
@@ -186,6 +266,12 @@ export async function startMirror (
 				const issue: MirrorIssue = { site: msg.label, kind: msg.kind, detail: msg.detail, time: Date.now() };
 				sess.issues.push(issue);
 				onIssue(issue);
+				const data = JSON.stringify(msg);
+				for (const o of observers) {
+					if (o.readyState === WebSocket.OPEN) {
+						o.send(data);
+					}
+				}
 				return;
 			}
 			// Leader action -> broadcast to followers.
@@ -199,7 +285,7 @@ export async function startMirror (
 				}
 			}
 		});
-		socket.on('close', () => followers.delete(socket));
+		socket.on('close', () => { followers.delete(socket); observers.delete(socket); });
 	});
 
 	// Install the bridge mu-plugin on every participating site.
@@ -208,8 +294,8 @@ export async function startMirror (
 		await fs.outputFile(muPath(site), muPlugin(port, role, site.name));
 	}
 
-	logger.info(`Mirror hub on ws://127.0.0.1:${port} — leader ${leader.name}, ${sites.length - 1} follower(s).`);
-	return { port };
+	logger.info(`Mirror hub on ws://127.0.0.1:${port} — leader ${leader.name}, ${sites.length - 1} follower(s). Grid: ${gridUrl}`);
+	return { port, gridUrl };
 }
 
 export async function stopMirror (
@@ -220,6 +306,7 @@ export async function stopMirror (
 	if (session) {
 		try {
 			session.server.close();
+			session.httpServer.close();
 		} catch (err) { /* fine */ }
 		session = null;
 	}
