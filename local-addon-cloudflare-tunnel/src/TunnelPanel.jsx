@@ -108,6 +108,9 @@ function TunnelPanel ({ site }) {
 							{status.url}
 						</a>
 						<TextButton onClick={copyUrl}>{copied ? 'Copied!' : 'Copy'}</TextButton>
+						<a href={`${status.url}/wp-admin`} target="_blank" rel="noreferrer">
+							wp-admin
+						</a>
 						<Button disabled={busy} onClick={stop}>
 							{busy ? 'Stopping…' : 'Stop tunnel'}
 						</Button>
