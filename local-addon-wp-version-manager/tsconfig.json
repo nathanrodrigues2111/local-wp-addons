@@ -1,0 +1,21 @@
+{
+	"compilerOptions": {
+		"outDir": "lib",
+		"rootDir": "src",
+		"target": "ES2019",
+		"module": "commonjs",
+		"moduleResolution": "node",
+		"jsx": "react",
+		"esModuleInterop": true,
+		"allowSyntheticDefaultImports": true,
+		"allowJs": true,
+		"skipLibCheck": true,
+		"resolveJsonModule": true,
+		"sourceMap": true,
+		"declaration": false,
+		"noEmitOnError": false
+	},
+	"include": [
+		"src/**/*"
+	]
+}
